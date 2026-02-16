@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: log_postgres
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppass
+      POSTGRES_DB: app_monitoring
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d app_monitoring"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  etl:
+    build: .
+    container_name: log_etl
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_NAME: app_monitoring
+      DB_USER: appuser
+      DB_PASSWORD: apppass
+      DB_PORT: 5432
+    command: python etl.py
+
+  log_generator:
+    build: .
+    container_name: log_generator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python log_generator.py
+    volumes:
+      - .:/app
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: log_grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres:5432
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: appuser
+      GF_DATABASE_PASSWORD: apppass
+      GF_DATABASE_SSL_MODE: disable
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  postgres_data:
+  grafana_data:
